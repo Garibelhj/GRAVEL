@@ -1,0 +1,18 @@
+../../data/DBLP
+2024-12-18 18:05:09
+Graph(num_nodes=26128, num_edges=265694,
+      ndata_schemes={}
+      edata_schemes={})
+4
+model using: slotGAT
+Epoch 00000 | Train_Loss: 1.4999 | train Time: 0.5913 | Val_Loss 1.5021 | val Time(s) 0.0740
+Epoch 00001 | Train_Loss: 1.4904 | train Time: 0.2052 | Val_Loss 1.4549 | val Time(s) 0.0891
+Epoch 00002 | Train_Loss: 1.4528 | train Time: 0.2097 | Val_Loss 1.4319 | val Time(s) 0.0927
+Epoch 00003 | Train_Loss: 1.4201 | train Time: 0.1978 | Val_Loss 1.4095 | val Time(s) 0.0876
+Epoch 00004 | Train_Loss: 1.3935 | train Time: 0.2060 | Val_Loss 1.3736 | val Time(s) 0.0846
+Epoch 00005 | Train_Loss: 1.3760 | train Time: 0.1979 | Val_Loss 1.3054 | val Time(s) 0.0863
+Epoch 00006 | Train_Loss: 1.3524 | train Time: 0.2134 | Val_Loss 1.2967 | val Time(s) 0.0923
+Epoch 00007 | Train_Loss: 1.3319 | train Time: 0.1967 | Val_Loss 1.2801 | val Time(s) 0.0868
+Epoch 00008 | Train_Loss: 1.2963 | train Time: 0.2206 | Val_Loss 1.2391 | val Time(s) 0.0847
+Epoch 00009 | Train_Loss: 1.2679 | train Time: 0.2020 | Val_Loss 1.2064 | val Time(s) 0.0862
+Epoch 00010 | Train_Loss: 1.2478 | train Time: 0.2058 | Val_Loss 1.1678 | val Time(s) 0.0862
