@@ -116,13 +116,17 @@ ehthumbs.db
 Thumbs.db
 
 # Project specific
-checkpoint/
+# checkpoint/  # Allow checkpoint files to be tracked (models are relatively small)
 feats/
 plot/
-dataset/
+# dataset/  # Dataset data files are too large (8.6GB), should not be committed
+dataset/*
+!dataset/.gitkeep
+!dataset/convert_*.py
 *.pkl
 *.pth
 *.pt
+!checkpoint/**/*.pt
 *.ckpt
 *.h5
 *.hdf5
