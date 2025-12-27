@@ -47,7 +47,7 @@ import torch.multiprocessing as mp
 from dgl.nn import LabelPropagation
 
 warnings.filterwarnings("ignore")
-os.environ['CUDA_VISIBLE_DEVICES']='1'
+os.environ['CUDA_VISIBLE_DEVICES']='4'
 device = th.device("cuda" if th.cuda.is_available() else "cpu")
 
 TAU=0.1
@@ -1095,7 +1095,7 @@ def run(proc_id, n_gpus, n_cpus, args, devices, dataset, queue=None):
 def main(args, devices):
     # # load graph data
     g, node_feats, num_of_ntype, num_classes, num_rels, target_idx, inv_target, train_idx, val_idx, test_idx, labels,hg = get_g2(
-        'iochg','iid')
+        'iochg','ood')
     # Create csr/coo/csc formats before launching training processes with multi-gpu.
     # This avoids creating certain formats in each sub-process, which saves momory and CPU.
     # 在使用多 GPU 启动训练过程之前创建 csr/coo/csc 格式，创建系数矩阵。

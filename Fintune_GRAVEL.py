@@ -1,54 +1,29 @@
 #-*-encoding:utf-8-*-
-
-"""
-Modeling Relational Data with Graph Convolutional Networks
-Paper: https://arxiv.org/abs/1703.06103
-Code: https://github.com/tkipf/relational-gcn
-Difference compared to tkipf/relation-gcn
-* l2norm applied to all weights
-* remove nodes that won't be touched
-
-"""
-import argparse, gc
+import os
+os.environ['CUDA_VISIBLE_DEVICES']='2'
+import argparse
 import numpy as np
 import pandas as pd
 import time
-from functools import partial
-import random
 import torch as th
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.nn.parallel import DistributedDataParallel
-from torch.utils.data import DataLoader
 import dgl
-from dgl import DGLGraph
-from functools import partial
-import sys
-sys.path.append('/home/hongjiegu/projects/model')
-sys.path.append('/home/hongjiegu/projects/GRAVEL/baselines')
-from baseline_trainer import simplehgnn_trainer
+import warnings
+# 获取脚本所在目录
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 from sklearn.metrics import f1_score
 from sklearn.metrics import precision_score
 from sklearn.metrics import roc_auc_score
 from sklearn.metrics import recall_score
 from sklearn.metrics import precision_recall_curve
-import matplotlib.pyplot as plt
-#dgl库，内置数据集
-#from ..model import linear
-from HGAFA_V2 import RelGraphEmbedLayer
-from HGAFA_V2 import RelGraphConv,EntityClassify
-
-from sklearn.model_selection import train_test_split
-from dgl import DropEdge
+from model.GRAVEL import RelGraphEmbedLayer
+from model.GRAVEL import EntityClassify
 import tqdm
-import os
-import warnings
-import torch.multiprocessing as mp
 from dgl.nn import LabelPropagation
 
 warnings.filterwarnings("ignore")
-os.environ['CUDA_VISIBLE_DEVICES']='5'
 device = th.device("cuda" if th.cuda.is_available() else "cpu")
 
 TAU=0.6
@@ -62,19 +37,19 @@ def get_g(benchmark, args=None):
     
     # 根据benchmark设置数据路径和参数
     if benchmark == 'pdns':
-        data_path = '/home/hongjiegu/projects/GRAVEL/dataset/pdns-dgl'
-        domain = pd.read_csv("/home/hongjiegu/projects/GRAVEL/dataset/pdns-dgl/domain.csv")
-        ip = pd.read_csv("/home/hongjiegu/projects/GRAVEL/dataset/pdns-dgl/ips.csv")
-        domain_feats = th.load('/home/hongjiegu/projects/GRAVEL/dataset/pdns-dgl/feats/domain_feats_rand.pt')
-        ip_feats = th.load('/home/hongjiegu/projects/GRAVEL/dataset/pdns-dgl/feats/ip_feats_rand.pt')
-        test_data = pd.read_csv('/home/hongjiegu/projects/GRAVEL/dataset/pdns-dgl/ood_pdns.csv')
+        data_path = os.path.join(SCRIPT_DIR, 'dataset', 'pdns-dgl')
+        domain = pd.read_csv(os.path.join(data_path, 'domain.csv'))
+        ip = pd.read_csv(os.path.join(data_path, 'ips.csv'))
+        domain_feats = th.load(os.path.join(data_path, 'feats', 'domain_feats_rand.pt'))
+        ip_feats = th.load(os.path.join(data_path, 'feats', 'ip_feats_rand.pt'))
+        test_data = pd.read_csv(os.path.join(data_path, 'ood_pdns.csv'))
         num_of_ntype = 2
         num_rels = 6
         
         # 加载边数据
         for i in range(1, 4):
             print("load data_" + str(i))
-            edge[i] = pd.read_csv(data_path + "/edge_" + str(i)+'.csv')
+            edge[i] = pd.read_csv(os.path.join(data_path, f'edge_{i}.csv'))
             u[i] = edge[i]["source"].values.astype(int)
             v[i] = edge[i]["target"].values.astype(int)
             u[i] = th.from_numpy(u[i])
@@ -100,20 +75,20 @@ def get_g(benchmark, args=None):
         g.nodes['domain'].data['val_mask'] = th.tensor(domain['with_label_valid']).T
 
     elif benchmark == 'minta':
-        data_path = '/home/hongjiegu/projects/GRAVEL/dataset/minta-dgl'
-        domain = pd.read_csv('/home/hongjiegu/projects/GRAVEL/dataset/minta-dgl/domain.csv')
-        ip = pd.read_csv('/home/hongjiegu/projects/GRAVEL/dataset/minta-dgl/ip.csv')
-        host = pd.read_csv('/home/hongjiegu/projects/GRAVEL/dataset/minta-dgl/host.csv')
-        domain_feats = th.load('/home/hongjiegu/projects/GRAVEL/dataset/minta-dgl/feats/domain_feats_rand.pt')
-        ip_feats = th.load('/home/hongjiegu/projects/GRAVEL/dataset/minta-dgl/feats/ip_feats_rand.pt')
-        host_feats = th.load('/home/hongjiegu/projects/GRAVEL/dataset/minta-dgl/feats/host_feats_rand.pt')
-        test_data = pd.read_csv('/home/hongjiegu/projects/GRAVEL/dataset/minta-dgl/ood_minta.csv')
+        data_path = os.path.join(SCRIPT_DIR, 'dataset', 'minta-dgl')
+        domain = pd.read_csv(os.path.join(data_path, 'domain.csv'))
+        ip = pd.read_csv(os.path.join(data_path, 'ip.csv'))
+        host = pd.read_csv(os.path.join(data_path, 'host.csv'))
+        domain_feats = th.load(os.path.join(data_path, 'feats', 'domain_feats_rand.pt'))
+        ip_feats = th.load(os.path.join(data_path, 'feats', 'ip_feats_rand.pt'))
+        host_feats = th.load(os.path.join(data_path, 'feats', 'host_feats_rand.pt'))
+        test_data = pd.read_csv(os.path.join(data_path, 'ood_minta.csv'))
         num_of_ntype = 3
         num_rels = 8
 
         for i in range(1, 5):
             print("load data_" + str(i))
-            edge[i] = pd.read_csv(data_path + "/edge_" + str(i)+'.csv')
+            edge[i] = pd.read_csv(os.path.join(data_path, f'edge_{i}.csv'))
             u[i] = edge[i]["index_x"].values.astype(int)
             v[i] = edge[i]["index_y"].values.astype(int)
             u[i] = th.from_numpy(u[i])
@@ -148,24 +123,24 @@ def get_g(benchmark, args=None):
     elif benchmark in ['iochg', 'iochg_small']:
         # 统一处理iochg和iochg_small
         if benchmark == 'iochg':
-            data_path = '/data1/hongjiegu/dataset/IOCHeteroGraph/dataset/IOCHeteroGraph/Data-2022-1114-1605-a'
-            domain_feats = th.load('/home/hongjiegu/projects/GRAVEL/feats/2022-1114-1605/domain_feats_rand.pt')
-            ip_feats = th.load('/home/hongjiegu/projects/GRAVEL/feats/2022-1114-1605/ip_feats_rand.pt')
-            url_feats = th.load('/home/hongjiegu/projects/GRAVEL/feats/2022-1114-1605/url_feats_rand.pt')
-            file_feats = th.load('/home/hongjiegu/projects/GRAVEL/feats/2022-1114-1605/file_feats_rand.pt')
-            test_data = pd.read_csv('/home/hongjiegu/projects/GRAVEL/dataset/iochg-dgl/ood_malicious_2022_1114_1605.csv', header=0)
+            data_path = os.path.join(SCRIPT_DIR, 'dataset', 'iochg-dgl')
+            domain_feats = th.load(os.path.join(data_path, 'feats', 'domain_feats_rand.pt'))
+            ip_feats = th.load(os.path.join(data_path, 'feats', 'ip_feats_rand.pt'))
+            url_feats = th.load(os.path.join(data_path, 'feats', 'url_feats_rand.pt'))
+            file_feats = th.load(os.path.join(data_path, 'feats', 'file_feats_rand.pt'))
+            test_data = pd.read_csv(os.path.join(data_path, 'ood_malicious_2022_1114_1605.csv'), header=0)
         else:  # iochg_small
-            data_path = '/data1/hongjiegu/dataset/IOCHeteroGraph/dataset/IOCHeteroGraph/Data-2023-1212-1537-zcf'
-            domain_feats = th.load('/home/hongjiegu/projects/GRAVEL/feats/2023-1212-1537-zcf/domain_feats_rand.pt')
-            ip_feats = th.load('/home/hongjiegu/projects/GRAVEL/feats/2023-1212-1537-zcf/ip_feats_rand.pt')
-            url_feats = th.load('/home/hongjiegu/projects/GRAVEL/feats/2023-1212-1537-zcf/url_feats_rand.pt')
-            file_feats = th.load('/home/hongjiegu/projects/GRAVEL/feats/2023-1212-1537-zcf/file_feats_rand.pt')
-            test_data = pd.read_csv('/home/hongjiegu/projects/GRAVEL/dataset/iochg-dgl/ood_malicious_1537.csv')
+            data_path = os.path.join(SCRIPT_DIR, 'dataset', 'iochg_small-dgl')
+            domain_feats = th.load(os.path.join(data_path, 'feats', 'domain_feats_rand.pt'))
+            ip_feats = th.load(os.path.join(data_path, 'feats', 'ip_feats_rand.pt'))
+            url_feats = th.load(os.path.join(data_path, 'feats', 'url_feats_rand.pt'))
+            file_feats = th.load(os.path.join(data_path, 'feats', 'file_feats_rand.pt'))
+            test_data = pd.read_csv(os.path.join(SCRIPT_DIR, 'dataset', 'iochg-dgl', 'ood_malicious_1537.csv'))
 
-        domain = pd.read_csv(data_path + '/nodes/domain_new')
-        file = pd.read_csv(data_path + '/nodes/file_nodes')
-        url = pd.read_csv(data_path + '/nodes/url_nodes')
-        ip = pd.read_csv(data_path + '/nodes/ip_new')
+        domain = pd.read_csv(os.path.join(data_path, 'nodes', 'domain_new.csv'))
+        file = pd.read_csv(os.path.join(data_path, 'nodes', 'file_nodes.csv'))
+        url = pd.read_csv(os.path.join(data_path, 'nodes', 'url_nodes.csv'))
+        ip = pd.read_csv(os.path.join(data_path, 'nodes', 'ip_new.csv'))
         
         num_of_ntype = 4
         num_rels = 20
@@ -173,10 +148,7 @@ def get_g(benchmark, args=None):
         # 加载边数据
         for i in range(1, 11):
             print("load data_" + str(i))
-            if benchmark == 'iochg':
-                edge[i] = pd.read_csv(data_path + "/edges/edges_" + str(i))
-            else:  # iochg_small
-                edge[i] = pd.read_csv(data_path + "/edges/edges_" + str(i)+'.csv')
+            edge[i] = pd.read_csv(os.path.join(data_path, 'edges', f'edges_{i}.csv'))
             u[i] = edge[i]["index_x"].values.astype(int)
             v[i] = edge[i]["index_y"].values.astype(int)
             u[i] = th.from_numpy(u[i])
@@ -307,38 +279,28 @@ def get_g(benchmark, args=None):
 
 
 class earlyStopping(object):
-    def __init__(self, patience=10):
+    def __init__(self, patience=10, checkpoint_dir=None, benchmark=None):
         self.patience = patience
         self.counter = 0
         self.early_stop = False
-        self.best_auc=0
-    def step(self, auc, model,embed_layer):
-        if auc < self.best_auc :
+        self.best_auc = 0
+        self.checkpoint_dir = checkpoint_dir or os.path.join(SCRIPT_DIR, 'checkpoint')
+        self.benchmark = benchmark or 'finetune'
+    def step(self, auc, model, embed_layer):
+        if auc < self.best_auc:
             self.counter += 1
             print(f'EarlyStopping counter: {self.counter} out of {self.patience}')
             if self.counter >= self.patience:
                 self.early_stop = True
         else:
-            th.save(model,'/data1/hongjiegu/checkpoint/HGSLA/finetune_model.pt')
-            th.save(embed_layer,'/data1/hongjiegu/checkpoint/HGSLA/finetune_embed.pt')
+            os.makedirs(self.checkpoint_dir, exist_ok=True)
+            model_filename = os.path.join(self.checkpoint_dir, f'{self.benchmark}_finetune_model.pt')
+            embed_filename = os.path.join(self.checkpoint_dir, f'{self.benchmark}_finetune_embed.pt')
+            th.save(model, model_filename)
+            th.save(embed_layer, embed_filename)
             self.best_auc = np.max((auc, self.best_auc))
             self.counter = 0
         return self.early_stop
-def set_random_seed(seed=0):
-    """Set random seed.
-    Parameters
-    ----------
-    seed : int
-        Random seed to use
-    """
-    random.seed(seed)
-    np.random.seed(seed)
-    th.manual_seed(seed)
-    if th.cuda.is_available():
-        th.cuda.manual_seed(seed)
-
-
-
 # 计算每个点的度作为一个特征
 def gen_norm(g):
     _, v, eid = g.all_edges(form='all')
@@ -363,9 +325,6 @@ def gen_norm(g):
     norm_w = th.tensor(np.array(df['norm_w']))
     norm_w = norm_w.unsqueeze(1)
     g.edata['norm_w'] = norm_w
-#     g[g.edata['etype']==1].edata['norm_w'] = 0.3
-#     g.edata['norm_w'] = 
-
 
 
 def score(logits, labels, thredhold):
@@ -374,16 +333,25 @@ def score(logits, labels, thredhold):
     logits = logits[((labels==0)|(labels==1))]
     logits = Softmax(logits)
     prob = logits[:,1].cpu().detach().numpy()
+    
+    # 处理 NaN 和 Inf 值
+    # 检查是否有 NaN 或 Inf
+    if np.isnan(prob).any() or np.isinf(prob).any():
+        print(f"Warning: Found NaN or Inf in probabilities. Replacing with 0.5")
+        prob = np.nan_to_num(prob, nan=0.5, posinf=1.0, neginf=0.0)
+    
     prediction = (prob>thredhold)
     true_labels = true_labels.long().cpu().numpy()  
     try:
         f1 = f1_score(true_labels, prediction)
     except:
+        f1 = 0.0
         pass
 
     try:
         macro_f1 = f1_score(true_labels, prediction, average='macro')
     except:
+        macro_f1 = 0.0
         pass
 
 
@@ -391,6 +359,7 @@ def score(logits, labels, thredhold):
         macro = precision_score(true_labels, prediction)
         
     except:
+        macro = 0.0
         pass
     try:
 
@@ -400,9 +369,19 @@ def score(logits, labels, thredhold):
     try:
         recall=recall_score(true_labels,prediction)
     except:
+        recall = 0.0
         pass
-    FDR,TPR,threshold = precision_recall_curve(true_labels,prob)
-    FDR = 1-FDR
+    
+    try:
+        FDR,TPR,threshold = precision_recall_curve(true_labels,prob)
+        FDR = 1-FDR
+    except ValueError as e:
+        print(f"Warning: precision_recall_curve failed: {e}")
+        # 返回默认值
+        FDR = np.array([0.0])
+        TPR = np.array([1.0])
+        threshold = np.array([0.5])
+    
     return f1, macro,roc_auc,recall,FDR,TPR,threshold
 
 
@@ -416,7 +395,7 @@ def evaluate(model, embed_layer,eval_loader, node_feats, inv_target):
         th.cuda.empty_cache()
         # Tqdm 是一个快速，可扩展的Python进度条，可以在 Python 长循环中添加一个进度提示信息，用户只需要封装任意的迭代器 tqdm(iterator)
         for sample_data in tqdm.tqdm(eval_loader):
-            inputs, seeds, blocks = sample_data
+            _, seeds, blocks = sample_data
             seeds = seeds.long()
             seeds = inv_target[seeds]
 
@@ -444,23 +423,20 @@ def run(proc_id, n_gpus, n_cpus, args, devices, dataset, queue=None):
     dev_id = 0
     g, node_feats, num_of_ntype, num_classes, num_rels, target_idx, inv_target, train_idx, val_idx, test_idx, labels,hg = dataset
 
-    gen_norm(g)     # test, wy, 2023/3/27
+    gen_norm(g)
 
-    # C_mal = cal_malicious_logits_center(node_feats,g,labels,inv_target)
-
-    stopper = earlyStopping(5)
+    checkpoint_dir = os.path.join(SCRIPT_DIR, 'checkpoint')
+    stopper = earlyStopping(5, checkpoint_dir=checkpoint_dir, benchmark=args.benchmark)
     fanouts = [int(fanout) for fanout in args.fanout.split(',')]
     sampler = dgl.dataloading.NeighborSampler(fanouts,'in')
     loader = dgl.dataloading.DataLoader(
         g,
         target_idx[train_idx],  # 要训练的数据
         sampler,
-        # use_ddp=n_gpus > 1,
         device=device,
         batch_size=args.batch_size,
         shuffle=True,
         drop_last=False,
-#         pin_memory =True,
         num_workers=args.num_workers)
 
     # validation sampler
@@ -468,7 +444,6 @@ def run(proc_id, n_gpus, n_cpus, args, devices, dataset, queue=None):
         g,
         target_idx[val_idx],
         sampler,
-        # use_ddp=n_gpus > 1,
         device=device,
         batch_size=args.batch_size,
         shuffle=False,
@@ -486,18 +461,17 @@ def run(proc_id, n_gpus, n_cpus, args, devices, dataset, queue=None):
         shuffle=False,
         drop_last=False,
         num_workers=args.num_workers)
-    # simplehgnn_trainer(g, node_feats, num_of_ntype, num_classes, num_rels, target_idx, inv_target, train_idx, val_idx, test_idx, labels, hg, device, 'minta', 'simpehgn',False)
-
     # 根据benchmark加载对应的预训练模型
+    checkpoint_dir = os.path.join(SCRIPT_DIR, 'checkpoint')
     if args.benchmark == 'iochg':
-        embed_layer = th.load('/data1/hongjiegu/checkpoint/HGSLA/GRAVEL_Embedding_small_end2end_v2.pt').to(device)
-        model = th.load('/data1/hongjiegu/checkpoint/HGSLA/GRAVEL_small_end2end_v2.pt').to(device)
+        embed_layer = th.load(os.path.join(checkpoint_dir, 'iochg_pretrained_gravel_embed.pt')).to(device)
+        model = th.load(os.path.join(checkpoint_dir, 'iochg_pretrained_gravel_model.pt')).to(device)
     elif args.benchmark == 'minta':
-        embed_layer = th.load('/home/hongjiegu/projects/GRAVEL/checkpoint/minta-gravel-contrastive-embed.pt').to(device)
-        model = th.load('/home/hongjiegu/projects/GRAVEL/checkpoint/minta-gravel-contrastive.pt').to(device)
+        embed_layer = th.load(os.path.join(checkpoint_dir, 'minta_pretrained_gravel_embed.pt')).to(device)
+        model = th.load(os.path.join(checkpoint_dir, 'minta_pretrained_gravel_model.pt')).to(device)
     elif args.benchmark == 'pdns':
-        embed_layer = th.load('/data1/hongjiegu/checkpoint/HGSLA/GRAVEL_Embedding_small_end2end_v2_pdns.pt').to(device)
-        model = th.load('/data1/hongjiegu/checkpoint/HGSLA/GRAVEL_small_end2end_v2_pdns.pt').to(device)
+        embed_layer = th.load(os.path.join(checkpoint_dir, 'pdns_pretrained_gravel_embed.pt')).to(device)
+        model = th.load(os.path.join(checkpoint_dir, 'pdns_pretrained_gravel_model.pt')).to(device)
 
     else:
         raise ValueError(f"Unsupported benchmark: {args.benchmark}")
@@ -519,18 +493,13 @@ def run(proc_id, n_gpus, n_cpus, args, devices, dataset, queue=None):
             input_nodes, seeds, blocks = sample_data
             seeds = seeds.long()
             seeds = inv_target[seeds]
-            t0 = time.time()
 
             feats = embed_layer(blocks[0].srcdata[dgl.NID],
                                 blocks[0].srcdata['ntype'],
                                 blocks[0].srcdata['type_id'],
                                 node_feats)
-            logits,hidden_status = model(blocks,feats)
-            # norms = th.norm(logits, p=2, dim=1, keepdim=True) + 1e-7
-            # norms = TAU*norms
-            # logits = th.div(logits, norms)
-            # loss = my_loss(hidden_status,C_mal,labels,seeds)
-            loss = F.cross_entropy(logits,labels[seeds])
+            logits, hidden_status = model(blocks, feats)
+            loss = F.cross_entropy(logits, labels[seeds])
             optimizer.zero_grad()
             if emb_optimizer is not None:
                 emb_optimizer.zero_grad()
@@ -541,12 +510,7 @@ def run(proc_id, n_gpus, n_cpus, args, devices, dataset, queue=None):
 
             optimizer.step()
 
-            # if i % 100 == 0 :
-            #     roc_auc,fpr,tpr,thresholds,best_threshold,best_f1 = score_auc(hidden_status, labels[seeds],C_mal)
-            #     print('loss: {}'.format(loss.item()))
-
-        val_logits, val_seeds = evaluate(model, embed_layer,val_loader, node_feats, inv_target)
-        # roc_auc,fdr,tpr,thresholds,best_threshold,best_f1 = score_auc=(val_logits, labels[val_seeds],C_mal)
+        val_logits, val_seeds = evaluate(model, embed_layer, val_loader, node_feats, inv_target)
         f1, macro,roc_auc,recall,FDR,TPR,threshold = score(val_logits, labels[val_seeds].cpu(),0.5)
         print(f"ROC AUC: {roc_auc:.4f}")
         print(f"Best F1: {f1:.4f}")
@@ -556,9 +520,7 @@ def run(proc_id, n_gpus, n_cpus, args, devices, dataset, queue=None):
             break
 
 def main(args, devices):
-    # # load graph data
-    g, node_feats, num_of_ntype, num_classes, num_rels, target_idx, inv_target, train_idx, val_idx, test_idx, labels,hg = get_g(args.benchmark, args)
-    # g, node_feats, num_of_ntype, num_classes, num_rels, target_idx, inv_target, train_idx, val_idx, test_idx, labels,hg = get_g(data_path)
+    g, node_feats, num_of_ntype, num_classes, num_rels, target_idx, inv_target, train_idx, val_idx, test_idx, labels, hg = get_g(args.benchmark, args)
 
     # Create csr/coo/csc formats before launching training processes with multi-gpu.
     # This avoids creating certain formats in each sub-process, which saves momory and CPU.
@@ -575,7 +537,7 @@ def config():
     parser = argparse.ArgumentParser(description='HGAFA')
     #     parser.add_argument('-s', '--seed', type=int, default=2,
     #                         help='Random seed')
-    parser.add_argument("--benchmark", type=str, default='iochg',
+    parser.add_argument("--benchmark", type=str, default='pdns',
                         help="benchmark dataset to use (iochg, iochg_small, minta, pdns)")
     parser.add_argument("--dropout", type=float, default=0,
                         help="dropout probability")
@@ -601,28 +563,18 @@ def config():
                         help="Fan-out of neighbor sampling.")
     parser.add_argument("--use-self-loop", default=True, action='store_true',
                         help="include self feature as a special relation")
-    fp = parser.add_mutually_exclusive_group(required=False)
-    fp.add_argument('--validation', dest='validation', action='store_true')
-    fp.add_argument('--testing', dest='validation', action='store_false')
-    parser.add_argument("--batch-size", type=int, default=1024,
+    parser.add_argument("--batch-size", type=int, default=4096,
                         help="Mini-batch size. ")
     parser.add_argument("--eval-batch-size", type=int, default=1024,
                         help="Mini-batch size. ")
     parser.add_argument("--num-workers", type=int, default=4,
                         help="Number of workers for dataloader.")
-    parser.add_argument("--low-mem", default=False, action='store_true',
-                        help="Whether use low mem RelGraphCov")
     parser.add_argument("--dgl-sparse", default=False, action='store_true',
                         help='Use sparse embedding for node embeddings.')
-    parser.add_argument("--embedding-gpu", default=True, action='store_true',
-                        help='Store the node embeddings on the GPU.')
-    parser.add_argument('--node-feats', default=True, action='store_true',
-                        help='Whether use node features')
     parser.add_argument('--layer-norm', default=False, action='store_true',
                         help='Use layer norm')
     parser.add_argument('--shot-ratio', type=float, default=1.0,
                         help='Shot ratio for OOD malicious samples (0.1-1.0)')
-    parser.set_defaults(validation=True)
     args = parser.parse_args()
     return args
 

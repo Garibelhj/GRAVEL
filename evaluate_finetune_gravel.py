@@ -1,48 +1,30 @@
 #!/usr/bin/env python3
 """
-评估微调后的GRAVEL模型在不同benchmark上的性能
+评估GRAVEL模型（预训练或微调）在不同benchmark上的性能
 """
 
-
-import argparse, gc
+import os
+os.environ['CUDA_VISIBLE_DEVICES']='2'
+import argparse
 import numpy as np
 import pandas as pd
-import time
-from functools import partial
-import random
 import torch as th
 import torch.nn as nn
-import torch.nn.functional as F
-from torch.nn.parallel import DistributedDataParallel
-from torch.utils.data import DataLoader
 import dgl
-from dgl import DGLGraph
-from functools import partial
-import sys
-sys.path.append('/home/hongjiegu/projects/model')
-sys.path.append('/home/hongjiegu/projects/GRAVEL/baselines')
-from baseline_trainer import simplehgnn_trainer
-
+import warnings
 from sklearn.metrics import f1_score
 from sklearn.metrics import precision_score
 from sklearn.metrics import roc_auc_score
 from sklearn.metrics import recall_score
-from sklearn.metrics import precision_recall_curve
-import matplotlib.pyplot as plt
-#dgl库，内置数据集
-#from ..model import linear
-from HGAFA_V2 import RelGraphEmbedLayer
-from HGAFA_V2 import RelGraphConv,EntityClassify
-
-from sklearn.model_selection import train_test_split
-from dgl import DropEdge
+from model.GRAVEL import RelGraphEmbedLayer
+from model.GRAVEL import EntityClassify
 import tqdm
-import os
-import warnings
-import torch.multiprocessing as mp
 from dgl.nn import LabelPropagation
 
-os.environ['CUDA_VISIBLE_DEVICES']='2'
+# 获取脚本所在目录
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+warnings.filterwarnings("ignore")
 device = th.device("cuda" if th.cuda.is_available() else "cpu")
 
 def get_g(benchmark, args=None):
@@ -52,19 +34,18 @@ def get_g(benchmark, args=None):
     
     # 根据benchmark设置数据路径和参数
     if benchmark == 'pdns':
-        data_path = '/home/hongjiegu/projects/GRAVEL/dataset/pdns-dgl'
-        domain = pd.read_csv("/home/hongjiegu/projects/GRAVEL/dataset/pdns-dgl/domain.csv")
-        ip = pd.read_csv("/home/hongjiegu/projects/GRAVEL/dataset/pdns-dgl/ips.csv")
-        domain_feats = th.load('/home/hongjiegu/projects/GRAVEL/dataset/pdns-dgl/feats/domain_feats_rand.pt')
-        ip_feats = th.load('/home/hongjiegu/projects/GRAVEL/dataset/pdns-dgl/feats/ip_feats_rand.pt')
-        test_data = pd.read_csv('/home/hongjiegu/projects/GRAVEL/dataset/pdns-dgl/ood_pdns.csv')
+        data_path = os.path.join(SCRIPT_DIR, 'dataset', 'pdns-dgl')
+        domain = pd.read_csv(os.path.join(data_path, 'domain.csv'))
+        ip = pd.read_csv(os.path.join(data_path, 'ips.csv'))
+        domain_feats = th.load(os.path.join(data_path, 'feats', 'domain_feats_rand.pt'))
+        ip_feats = th.load(os.path.join(data_path, 'feats', 'ip_feats_rand.pt'))
         num_of_ntype = 2
         num_rels = 6
         
         # 加载边数据
         for i in range(1, 4):
             print("load data_" + str(i))
-            edge[i] = pd.read_csv(data_path + "/edge_" + str(i)+'.csv')
+            edge[i] = pd.read_csv(os.path.join(data_path, f'edge_{i}.csv'))
             u[i] = edge[i]["source"].values.astype(int)
             v[i] = edge[i]["target"].values.astype(int)
             u[i] = th.from_numpy(u[i])
@@ -90,20 +71,19 @@ def get_g(benchmark, args=None):
         g.nodes['domain'].data['val_mask'] = th.tensor(domain['with_label_valid']).T
 
     elif benchmark == 'minta':
-        data_path = '/home/hongjiegu/projects/GRAVEL/dataset/minta-dgl'
-        domain = pd.read_csv('/home/hongjiegu/projects/GRAVEL/dataset/minta-dgl/domain.csv')
-        ip = pd.read_csv('/home/hongjiegu/projects/GRAVEL/dataset/minta-dgl/ip.csv')
-        host = pd.read_csv('/home/hongjiegu/projects/GRAVEL/dataset/minta-dgl/host.csv')
-        domain_feats = th.load('/home/hongjiegu/projects/GRAVEL/dataset/minta-dgl/feats/domain_feats_rand.pt')
-        ip_feats = th.load('/home/hongjiegu/projects/GRAVEL/dataset/minta-dgl/feats/ip_feats_rand.pt')
-        host_feats = th.load('/home/hongjiegu/projects/GRAVEL/dataset/minta-dgl/feats/host_feats_rand.pt')
-        test_data = pd.read_csv('/home/hongjiegu/projects/GRAVEL/dataset/minta-dgl/ood_minta.csv')
+        data_path = os.path.join(SCRIPT_DIR, 'dataset', 'minta-dgl')
+        domain = pd.read_csv(os.path.join(data_path, 'domain.csv'))
+        ip = pd.read_csv(os.path.join(data_path, 'ip.csv'))
+        host = pd.read_csv(os.path.join(data_path, 'host.csv'))
+        domain_feats = th.load(os.path.join(data_path, 'feats', 'domain_feats_rand.pt'))
+        ip_feats = th.load(os.path.join(data_path, 'feats', 'ip_feats_rand.pt'))
+        host_feats = th.load(os.path.join(data_path, 'feats', 'host_feats_rand.pt'))
         num_of_ntype = 3
         num_rels = 8
 
         for i in range(1, 5):
             print("load data_" + str(i))
-            edge[i] = pd.read_csv(data_path + "/edge_" + str(i)+'.csv')
+            edge[i] = pd.read_csv(os.path.join(data_path, f'edge_{i}.csv'))
             u[i] = edge[i]["index_x"].values.astype(int)
             v[i] = edge[i]["index_y"].values.astype(int)
             u[i] = th.from_numpy(u[i])
@@ -138,38 +118,29 @@ def get_g(benchmark, args=None):
     elif benchmark in ['iochg', 'iochg_small']:
         # 统一处理iochg和iochg_small
         if benchmark == 'iochg':
-            data_path = '/data1/hongjiegu/dataset/IOCHeteroGraph/dataset/IOCHeteroGraph/Data-2022-1114-1605-a'
-            domain_feats = th.load('/home/hongjiegu/projects/GRAVEL/feats/2022-1114-1605/domain_feats_rand.pt')
-            ip_feats = th.load('/home/hongjiegu/projects/GRAVEL/feats/2022-1114-1605/ip_feats_rand.pt')
-            url_feats = th.load('/home/hongjiegu/projects/GRAVEL/feats/2022-1114-1605/url_feats_rand.pt')
-            file_feats = th.load('/home/hongjiegu/projects/GRAVEL/feats/2022-1114-1605/file_feats_rand.pt')
-            test_data = pd.read_csv('/home/hongjiegu/projects/GRAVEL/dataset/iochg-dgl/ood_malicious_2022_1114_1605.csv', header=0)
+            data_path = os.path.join(SCRIPT_DIR, 'dataset', 'iochg-dgl')
+            domain_feats = th.load(os.path.join(data_path, 'feats', 'domain_feats_rand.pt'))
+            ip_feats = th.load(os.path.join(data_path, 'feats', 'ip_feats_rand.pt'))
+            url_feats = th.load(os.path.join(data_path, 'feats', 'url_feats_rand.pt'))
+            file_feats = th.load(os.path.join(data_path, 'feats', 'file_feats_rand.pt'))
         else:  # iochg_small
-            data_path = '/data1/hongjiegu/dataset/IOCHeteroGraph/dataset/IOCHeteroGraph/Data-2023-1212-1537-zcf'
-            domain_feats = th.load('/home/hongjiegu/projects/GRAVEL/feats/2023-1212-1537-zcf/domain_feats_rand.pt')
-            ip_feats = th.load('/home/hongjiegu/projects/GRAVEL/feats/2023-1212-1537-zcf/ip_feats_rand.pt')
-            url_feats = th.load('/home/hongjiegu/projects/GRAVEL/feats/2023-1212-1537-zcf/url_feats_rand.pt')
-            file_feats = th.load('/home/hongjiegu/projects/GRAVEL/feats/2023-1212-1537-zcf/file_feats_rand.pt')
-            test_data = pd.read_csv('/home/hongjiegu/projects/GRAVEL/dataset/iochg-dgl/ood_malicious_1537.csv')
+            data_path = os.path.join(SCRIPT_DIR, 'dataset', 'iochg_small-dgl')
+            domain_feats = th.load(os.path.join(data_path, 'feats', 'domain_feats_rand.pt'))
+            ip_feats = th.load(os.path.join(data_path, 'feats', 'ip_feats_rand.pt'))
+            url_feats = th.load(os.path.join(data_path, 'feats', 'url_feats_rand.pt'))
+            file_feats = th.load(os.path.join(data_path, 'feats', 'file_feats_rand.pt'))
 
-
-        domain = pd.read_csv(data_path + '/nodes/domain_new')
-        print(domain[domain.val_mask==True].label.value_counts())
-        print(domain[domain.test_mask==True].label.value_counts())
-        print(len(domain))
-        file = pd.read_csv(data_path + '/nodes/file_nodes')
-        url = pd.read_csv(data_path + '/nodes/url_nodes')
-        ip = pd.read_csv(data_path + '/nodes/ip_new')
+        domain = pd.read_csv(os.path.join(data_path, 'nodes', 'domain_new.csv'))
+        file = pd.read_csv(os.path.join(data_path, 'nodes', 'file_nodes.csv'))
+        url = pd.read_csv(os.path.join(data_path, 'nodes', 'url_nodes.csv'))
+        ip = pd.read_csv(os.path.join(data_path, 'nodes', 'ip_new.csv'))
         num_of_ntype = 4
         num_rels = 20
         
         # 加载边数据
         for i in range(1, 11):
             print("load data_" + str(i))
-            if benchmark == 'iochg':
-                edge[i] = pd.read_csv(data_path + "/edges/edges_" + str(i))
-            else:  # iochg_small
-                edge[i] = pd.read_csv(data_path + "/edges/edges_" + str(i)+'.csv')
+            edge[i] = pd.read_csv(os.path.join(data_path, 'edges', f'edges_{i}.csv'))
             u[i] = edge[i]["index_x"].values.astype(int)
             v[i] = edge[i]["index_y"].values.astype(int)
             u[i] = th.from_numpy(u[i])
@@ -396,12 +367,40 @@ def evaluate_benchmark(benchmark, args):
         num_workers=args.num_workers
     )
     
-    # 加载模型
-    embed_layer = th.load('/data1/hongjiegu/checkpoint/HGSLA/GRAVEL_Embedding_small_end2end_v2.pt').to(device)
-    model = th.load('/data1/hongjiegu/checkpoint/HGSLA/GRAVEL_small_end2end_v2.pt').to(device)
-
-    
-    # 根据benchmark加载对应的预训练模型
+    # 根据benchmark和model_type加载对应的模型
+    checkpoint_dir = os.path.join(SCRIPT_DIR, 'checkpoint')
+    if args.model_type == 'pretrain':
+        # 加载预训练模型
+        if args.benchmark == 'iochg':
+            embed_layer = th.load(os.path.join(checkpoint_dir, 'iochg_pretrained_gravel_embed.pt')).to(device)
+            model = th.load(os.path.join(checkpoint_dir, 'iochg_pretrained_gravel_model.pt')).to(device)
+        elif args.benchmark == 'minta':
+            embed_layer = th.load(os.path.join(checkpoint_dir, 'minta_pretrained_gravel_embed.pt')).to(device)
+            model = th.load(os.path.join(checkpoint_dir, 'minta_pretrained_gravel_model.pt')).to(device)
+        elif args.benchmark == 'pdns':
+            embed_layer = th.load(os.path.join(checkpoint_dir, 'pdns_pretrained_gravel_embed.pt')).to(device)
+            model = th.load(os.path.join(checkpoint_dir, 'pdns_pretrained_gravel_model.pt')).to(device)
+        elif args.benchmark == 'iochg_small':
+            embed_layer = th.load(os.path.join(checkpoint_dir, 'iochg_small_pretrained_gravel_embed.pt')).to(device)
+            model = th.load(os.path.join(checkpoint_dir, 'iochg_small_pretrained_gravel_model.pt')).to(device)
+        else:
+            raise ValueError(f"Unsupported benchmark: {args.benchmark}")
+    else:  # finetune
+        # 加载微调模型
+        if args.benchmark == 'iochg':
+            embed_layer = th.load(os.path.join(checkpoint_dir, 'iochg_finetune_embed.pt')).to(device)
+            model = th.load(os.path.join(checkpoint_dir, 'iochg_finetune_model.pt')).to(device)
+        elif args.benchmark == 'minta':
+            embed_layer = th.load(os.path.join(checkpoint_dir, 'minta_finetune_embed.pt')).to(device)
+            model = th.load(os.path.join(checkpoint_dir, 'minta_finetune_model.pt')).to(device)
+        elif args.benchmark == 'pdns':
+            embed_layer = th.load(os.path.join(checkpoint_dir, 'pdns_finetune_embed.pt')).to(device)
+            model = th.load(os.path.join(checkpoint_dir, 'pdns_finetune_model.pt')).to(device)
+        elif args.benchmark == 'iochg_small':
+            embed_layer = th.load(os.path.join(checkpoint_dir, 'iochg_small_finetune_embed.pt')).to(device)
+            model = th.load(os.path.join(checkpoint_dir, 'iochg_small_finetune_model.pt')).to(device)
+        else:
+            raise ValueError(f"Unsupported benchmark: {args.benchmark}")
 
     
     # 评估验证集
@@ -417,7 +416,7 @@ def evaluate_benchmark(benchmark, args):
     test_metrics = calculate_metrics(test_logits, test_labels)
     
     # 打印结果
-    print(f"\n=== {benchmark.upper()} Results ===")
+    print(f"\n=== {benchmark.upper()} ({args.model_type.upper()}) Results ===")
     print(f"Validation Set:")
     for metric, value in val_metrics.items():
         print(f"  {metric.upper()}: {value:.4f}")
@@ -428,6 +427,7 @@ def evaluate_benchmark(benchmark, args):
     
     return {
         'benchmark': benchmark,
+        'model_type': args.model_type,
         'validation': val_metrics,
         'test': test_metrics
     }
@@ -435,18 +435,14 @@ def evaluate_benchmark(benchmark, args):
 def main():
     parser = argparse.ArgumentParser(description='Evaluate GRAVEL model on different benchmarks')
     parser.add_argument("--benchmark", type=str, required=True,
-                        help="benchmark dataset to evaluate (iochg, iochg_small, minta, pdns)")
-    parser.add_argument("--n-hidden", type=int, default=64, help="number of hidden units")
-    parser.add_argument("--n-layers", type=int, default=3, help="number of propagation rounds")
-    parser.add_argument("--n-bases", type=int, default=2, help="number of filter weight matrices")
-    parser.add_argument("--dropout", type=float, default=0, help="dropout probability")
-    parser.add_argument("--use-self-loop", default=True, action='store_true', help="include self feature")
-    parser.add_argument("--layer-norm", default=False, action='store_true', help='Use layer norm')
-    parser.add_argument("--dgl-sparse", default=False, action='store_true', help='Use sparse embedding')
+                        choices=['iochg', 'iochg_small', 'minta', 'pdns'],
+                        help="benchmark dataset to evaluate")
+    parser.add_argument("--model-type", type=str, required=True,
+                        choices=['pretrain', 'finetune'],
+                        help="model type to evaluate: pretrain or finetune")
     parser.add_argument("--fanout", type=str, default="20,20,20", help="Fan-out of neighbor sampling")
     parser.add_argument("--eval-batch-size", type=int, default=1024, help="Evaluation batch size")
     parser.add_argument("--num-workers", type=int, default=4, help="Number of workers for dataloader")
-    parser.add_argument("--shot-ratio", type=float, default=1.0, help='Shot ratio for OOD malicious samples')
     
     args = parser.parse_args()
     

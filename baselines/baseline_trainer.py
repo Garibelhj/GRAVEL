@@ -185,7 +185,7 @@ def get_g(benchmark, zero_shot=False):
 
         }
         g = dgl.heterograph(graph_data)
-        print(domain.label.unique())
+        print(g)
         g.nodes['domain'].data['feat'] = th.tensor(np.array(domain_feats)).to(th.float32)
         g.nodes['ip'].data['feat'] = th.tensor(np.array(ip_feats)).to(th.float32)
     elif benchmark == 'minta':
@@ -371,7 +371,7 @@ def config():
     #                         help='Random seed')
     parser.add_argument("--baselines", type=str, default='hgt',
                         help="dropout probability")
-    parser.add_argument("--benchmark", type=str, default='iochg',
+    parser.add_argument("--benchmark", type=str, default='pdns',
                         help="number of hidden units")
     parser.add_argument("--zero_shot", action='store_true', default=False,
                         help="whether to use zero-shot training (set ood_malicious_domain labels to 1)")

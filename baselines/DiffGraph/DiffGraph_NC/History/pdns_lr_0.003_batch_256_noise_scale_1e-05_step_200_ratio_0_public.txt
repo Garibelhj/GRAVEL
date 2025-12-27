@@ -1,0 +1,10 @@
+2025-10-10 00:16:04,178 	[Classification] Macro-F1: 0.4326 var: 0.0343  Micro-F1_mean: 0.5209 var: 0.0051 auc 0.0000
+2025-10-10 00:16:04,178 	[Classification] Macro-F1: 0.4326 var: 0.0343  Micro-F1_mean: 0.5209 var: 0.0051 auc 0.0000
+2025-10-10 00:16:04,178 	[Classification] Macro-F1: 0.4326 var: 0.0343  Micro-F1_mean: 0.5209 var: 0.0051 auc 0.0000
+2025-10-10 00:16:04,178 	[Classification] Macro-F1: 0.4326 var: 0.0343  Micro-F1_mean: 0.5209 var: 0.0051 auc 0.0000
+2025-10-10 00:16:04,178 	[Classification] Macro-F1: 0.4326 var: 0.0343  Micro-F1_mean: 0.5209 var: 0.0051 auc 0.0000
+2025-10-10 00:16:04,178 	[Classification] Macro-F1: 0.4326 var: 0.0343  Micro-F1_mean: 0.5209 var: 0.0051 auc 0.0000
+2025-10-10 00:16:04,178 	[Classification] Macro-F1: 0.4326 var: 0.0343  Micro-F1_mean: 0.5209 var: 0.0051 auc 0.0000
+2025-10-10 00:16:04,178 	[Classification] Macro-F1: 0.4326 var: 0.0343  Micro-F1_mean: 0.5209 var: 0.0051 auc 0.0000
+2025-10-10 00:16:04,178 	[Classification] Macro-F1: 0.4326 var: 0.0343  Micro-F1_mean: 0.5209 var: 0.0051 auc 0.0000
+2025-10-10 00:16:04,178 	[Classification] Macro-F1: 0.4326 var: 0.0343  Micro-F1_mean: 0.5209 var: 0.0051 auc 0.0000

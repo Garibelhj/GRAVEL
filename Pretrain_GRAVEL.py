@@ -1,54 +1,34 @@
 #-*-encoding:utf-8-*-
 
-"""
-Modeling Relational Data with Graph Convolutional Networks
-Paper: https://arxiv.org/abs/1703.06103
-Code: https://github.com/tkipf/relational-gcn
-Difference compared to tkipf/relation-gcn
-* l2norm applied to all weights
-* remove nodes that won't be touched
 
-"""
-import argparse, gc
+import os 
+os.environ['CUDA_VISIBLE_DEVICES']='2'
+import argparse
 import numpy as np
 import pandas as pd
 import time
-from functools import partial
-import random
 import torch as th
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.nn.parallel import DistributedDataParallel
-from torch.utils.data import DataLoader
 import dgl
-from dgl import DGLGraph
-from functools import partial
 import sys
-sys.path.append('/home/hongjiegu/projects/model')
+from datetime import datetime, timedelta
 
-
+# 获取脚本所在目录
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 from sklearn.metrics import f1_score
 from sklearn.metrics import precision_score
 from sklearn.metrics import roc_auc_score
 from sklearn.metrics import recall_score
 from sklearn.metrics import precision_recall_curve
-import matplotlib.pyplot as plt
-#dgl库，内置数据集
-#from ..model import linear
-from HGAFA_V2 import RelGraphEmbedLayer
-from HGAFA_V2 import RelGraphConv,EntityClassify
-
-from sklearn.model_selection import train_test_split
-from dgl import DropEdge
+from model.GRAVEL import RelGraphEmbedLayer
+from model.GRAVEL import EntityClassify
 import tqdm
-import os
 import warnings
-import torch.multiprocessing as mp
 from dgl.nn import LabelPropagation
-
-warnings.filterwarnings("ignore")
-os.environ['CUDA_VISIBLE_DEVICES']='1'
 device = th.device("cuda" if th.cuda.is_available() else "cpu")
+warnings.filterwarnings("ignore")
+
 TAU =0.6
 
 def get_g(benchmark):
@@ -56,18 +36,16 @@ def get_g(benchmark):
     u = {}
     v = {}
     if benchmark == 'pdns':
-        data_path = '/home/hongjiegu/projects/GRAVEL/dataset/pdns-dgl'
-        domain = pd.read_csv("/home/hongjiegu/projects/GRAVEL/dataset/pdns-dgl/domain.csv")
-        ip = pd.read_csv("/home/hongjiegu/projects/GRAVEL/dataset/pdns-dgl/ips.csv")
-        domain_feats = th.load('/home/hongjiegu/projects/GRAVEL/dataset/pdns-dgl/feats/domain_feats_rand.pt')
-        ip_feats = th.load('/home/hongjiegu/projects/GRAVEL/dataset/pdns-dgl/feats/ip_feats_rand.pt')
-        test_data = pd.read_csv('/home/hongjiegu/projects/GRAVEL/dataset/pdns-dgl/ood_pdns.csv')
+        data_path = os.path.join(SCRIPT_DIR, 'dataset', 'pdns-dgl')
+        domain = pd.read_csv(os.path.join(data_path, 'domain.csv'))
+        domain_feats = th.load(os.path.join(data_path, 'feats', 'domain_feats_rand.pt'))
+        ip_feats = th.load(os.path.join(data_path, 'feats', 'ip_feats_rand.pt'))
 
         num_of_ntype = 2
         num_rels =6  
         for i in range(1, 4):
             print("load data_" + str(i))
-            edge[i] = pd.read_csv(data_path + "/edge_" + str(i)+'.csv')
+            edge[i] = pd.read_csv(os.path.join(data_path, f'edge_{i}.csv'))
             u[i] = edge[i]["source"].values.astype(int)
             v[i] = edge[i]["target"].values.astype(int)
             u[i] = th.from_numpy(u[i])  # .to(device)
@@ -95,20 +73,18 @@ def get_g(benchmark):
         g.nodes['ip'].data['val_mask'] = th.full((g.number_of_nodes('ip'),), False)
 
     elif benchmark == 'minta':
-        data_path = '/home/hongjiegu/projects/GRAVEL/dataset/minta-dgl'
-        domain = pd.read_csv('/home/hongjiegu/projects/GRAVEL/dataset/minta-dgl/domain.csv')
-        ip = pd.read_csv('/home/hongjiegu/projects/GRAVEL/dataset/minta-dgl/ip.csv')
-        host = pd.read_csv('/home/hongjiegu/projects/GRAVEL/dataset/minta-dgl/host.csv')
-        domain_feats = th.load('/home/hongjiegu/projects/GRAVEL/dataset/minta-dgl/feats/domain_feats_rand.pt')
-        ip_feats = th.load('/home/hongjiegu/projects/GRAVEL/dataset/minta-dgl/feats/ip_feats_rand.pt')
-        host_feats = th.load('/home/hongjiegu/projects/GRAVEL/dataset/minta-dgl/feats/host_feats_rand.pt')
+        data_path = os.path.join(SCRIPT_DIR, 'dataset', 'minta-dgl')
+        domain = pd.read_csv(os.path.join(data_path, 'domain.csv'))
+        host = pd.read_csv(os.path.join(data_path, 'host.csv'))
+        domain_feats = th.load(os.path.join(data_path, 'feats', 'domain_feats_rand.pt'))
+        ip_feats = th.load(os.path.join(data_path, 'feats', 'ip_feats_rand.pt'))
+        host_feats = th.load(os.path.join(data_path, 'feats', 'host_feats_rand.pt'))
         num_of_ntype = 3
         num_rels =8    
-        test_data = pd.read_csv('/home/hongjiegu/projects/GRAVEL/dataset/minta-dgl/ood_minta.csv')
 
         for i in range(1, 5):
             print("load data_" + str(i))
-            edge[i] = pd.read_csv(data_path + "/edge_" + str(i)+'.csv')
+            edge[i] = pd.read_csv(os.path.join(data_path, f'edge_{i}.csv'))
             u[i] = edge[i]["index_x"].values.astype(int)
             v[i] = edge[i]["index_y"].values.astype(int)
             u[i] = th.from_numpy(u[i])  # .to(device)
@@ -144,23 +120,20 @@ def get_g(benchmark):
         g.nodes['host'].data['test_mask'] = th.full((g.number_of_nodes('host'),), False)
         g.nodes['host'].data['val_mask'] = th.full((g.number_of_nodes('host'),), False)
     elif benchmark == 'iochg':
-        data_path ='/data1/hongjiegu/dataset/IOCHeteroGraph/dataset/IOCHeteroGraph/Data-2022-1114-1605-a'
-        # from ogb.nodeproppred import DglNodePropPredDataset
-        domain = pd.read_csv(data_path + '/nodes/domain_new')
-        url = pd.read_csv(data_path + '/nodes/url_nodes')
-        file = pd.read_csv(data_path + '/nodes/file_nodes')
-        ip = pd.read_csv(data_path + '/nodes/ip_new')
-        domain_feats = th.load('/home/hongjiegu/projects/GRAVEL/feats/2022-1114-1605/domain_feats_rand.pt')
-        ip_feats = th.load('/home/hongjiegu/projects/GRAVEL/feats/2022-1114-1605/ip_feats_rand.pt')
-        url_feats = th.load('/home/hongjiegu/projects/GRAVEL/feats/2022-1114-1605/url_feats_rand.pt')
-        file_feats = th.load('/home/hongjiegu/projects/GRAVEL/feats/2022-1114-1605/file_feats_rand.pt')
-        test_data = pd.read_csv('/home/hongjiegu/projects/GRAVEL/dataset/iochg-dgl/ood_malicious_2022_1114_1605.csv',header=0)
+        data_path = os.path.join(SCRIPT_DIR, 'dataset', 'iochg-dgl')
+        domain = pd.read_csv(os.path.join(data_path, 'nodes', 'domain_new.csv'))
+        url = pd.read_csv(os.path.join(data_path, 'nodes', 'url_nodes.csv'))
+        file = pd.read_csv(os.path.join(data_path, 'nodes', 'file_nodes.csv'))
+        domain_feats = th.load(os.path.join(data_path, 'feats', 'domain_feats_rand.pt'))
+        ip_feats = th.load(os.path.join(data_path, 'feats', 'ip_feats_rand.pt'))
+        url_feats = th.load(os.path.join(data_path, 'feats', 'url_feats_rand.pt'))
+        file_feats = th.load(os.path.join(data_path, 'feats', 'file_feats_rand.pt'))
 
         num_of_ntype = 4
         num_rels = 20
         for i in range(1, 11):
             print("load data_" + str(i))
-            edge[i] = pd.read_csv(data_path + "/edges/edges_" + str(i))
+            edge[i] = pd.read_csv(os.path.join(data_path, 'edges', f'edges_{i}.csv'))
             u[i] = edge[i]["index_x"].values.astype(int)
             v[i] = edge[i]["index_y"].values.astype(int)
             u[i] = th.from_numpy(u[i])  # .to(device)
@@ -276,30 +249,31 @@ class earlyStopping(object):
         self.counter = 0
         self.early_stop = False
         self.best_auc=0
-    def step(self, auc, model,embed_layer):
-        if auc < self.best_auc :
+    def step(self, auc, model, embed_layer):
+        if auc < self.best_auc:
             self.counter += 1
             print(f'EarlyStopping counter: {self.counter} out of {self.patience}')
             if self.counter >= self.patience:
                 self.early_stop = True
         else:
-            th.save(model,'/data1/hongjiegu/checkpoint/HGSLA/GRAVEL_small_end2end_v2_pdns.pt')
-            th.save(embed_layer,'/data1/hongjiegu/checkpoint/HGSLA/GRAVEL_Embedding_small_end2end_v2_pdns.pt')
             self.best_auc = np.max((auc, self.best_auc))
             self.counter = 0
         return self.early_stop
-def set_random_seed(seed=0):
-    """Set random seed.
-    Parameters
-    ----------
-    seed : int
-        Random seed to use
-    """
-    random.seed(seed)
-    np.random.seed(seed)
-    th.manual_seed(seed)
+def count_parameters(model):
+    """Count the number of trainable parameters in a model"""
+    total_params = sum(p.numel() for p in model.parameters())
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    return total_params, trainable_params
+
+def format_time(seconds):
+    """Format seconds to readable time string"""
+    return str(timedelta(seconds=int(seconds)))
+
+def get_gpu_memory():
+    """Get current GPU memory usage in MB"""
     if th.cuda.is_available():
-        th.cuda.manual_seed(seed)
+        return th.cuda.max_memory_allocated() / 1024 / 1024  # Convert to MB
+    return 0
 
 
 
@@ -327,9 +301,6 @@ def gen_norm(g):
     norm_w = th.tensor(np.array(df['norm_w']))
     norm_w = norm_w.unsqueeze(1)
     g.edata['norm_w'] = norm_w
-#     g[g.edata['etype']==1].edata['norm_w'] = 0.3
-#     g.edata['norm_w'] = 
-
 
 
 def score(logits, labels, thredhold):
@@ -346,12 +317,6 @@ def score(logits, labels, thredhold):
         pass
 
     try:
-        macro_f1 = f1_score(true_labels, prediction, average='macro')
-    except:
-        pass
-
-
-    try:
         macro = precision_score(true_labels, prediction)
         
     except:
@@ -365,9 +330,9 @@ def score(logits, labels, thredhold):
         recall=recall_score(true_labels,prediction)
     except:
         pass
-    FDR,TPR,threshold = precision_recall_curve(true_labels,prob)
-    FDR = 1-FDR
-    return f1, macro,roc_auc,recall,FDR,TPR,threshold
+    FDR, TPR, threshold = precision_recall_curve(true_labels, prob)
+    FDR = 1 - FDR
+    return f1, macro, roc_auc, recall, FDR, TPR, threshold
 def my_loss(hidden_status,C_mal,pseudo_labels,seeds):
     C_mal = C_mal.to(device)
 
@@ -450,7 +415,7 @@ def evaluate(model, embed_layer,eval_loader, node_feats, inv_target):
         th.cuda.empty_cache()
         # Tqdm 是一个快速，可扩展的Python进度条，可以在 Python 长循环中添加一个进度提示信息，用户只需要封装任意的迭代器 tqdm(iterator)
         for sample_data in tqdm.tqdm(eval_loader):
-            inputs, seeds, blocks = sample_data
+            _, seeds, blocks = sample_data
             seeds = seeds.long()
             seeds = inv_target[seeds]
 
@@ -498,7 +463,7 @@ def generate_pseudo_labels(model, embed_layer, g, node_feats, inv_target, target
     
     with th.no_grad():
         for sample_data in tqdm.tqdm(loader, desc="Generating pseudo labels"):
-            inputs, seeds, blocks = sample_data
+            _, seeds, blocks = sample_data
             seeds = seeds.long()
             seeds = inv_target[seeds]
             
@@ -548,7 +513,7 @@ def cal_malicious_logits_center_with_model(model, embed_layer, node_feats, g, la
 
         with th.no_grad():
             for sample_data in tqdm.tqdm(malicious_loader, desc="Computing malicious center"):
-                inputs, seeds, blocks = sample_data
+                _, seeds, blocks = sample_data
                 seeds = seeds.long()
                 seeds = inv_target[seeds]
                 feats = embed_layer(blocks[0].srcdata[dgl.NID], blocks[0].srcdata['ntype'], blocks[0].srcdata['type_id'], node_feats)
@@ -571,7 +536,7 @@ def cal_malicious_logits_center_with_model(model, embed_layer, node_feats, g, la
 
         with th.no_grad():
             for sample_data in tqdm.tqdm(benign_loader, desc="Computing benign center"):
-                inputs, seeds, blocks = sample_data
+                _, seeds, blocks = sample_data
                 seeds = seeds.long()
                 seeds = inv_target[seeds]
                 feats = embed_layer(blocks[0].srcdata[dgl.NID], blocks[0].srcdata['ntype'], blocks[0].srcdata['type_id'], node_feats)
@@ -602,9 +567,11 @@ def run(proc_id, n_gpus, n_cpus, args, devices, dataset, queue=None):
     
     # 记录最佳性能用于伪标签更新
     best_performance = 0.0
-    last_update_epoch = -1
     
-
+    # 跟踪最佳模型（用于最终保存）
+    best_model_state = None
+    best_embed_state = None
+    best_overall_f1 = 0.0
     
     stopper = earlyStopping(5)
     fanouts = [int(fanout) for fanout in args.fanout.split(',')]
@@ -613,12 +580,10 @@ def run(proc_id, n_gpus, n_cpus, args, devices, dataset, queue=None):
         g,
         target_idx[train_idx],  # 要训练的数据
         sampler,
-        # use_ddp=n_gpus > 1,
         device=device,
         batch_size=args.batch_size,
         shuffle=True,
         drop_last=False,
-#         pin_memory =True,
         num_workers=args.num_workers)
 
     # validation sampler
@@ -626,7 +591,6 @@ def run(proc_id, n_gpus, n_cpus, args, devices, dataset, queue=None):
         g,
         target_idx[val_idx],
         sampler,
-        # use_ddp=n_gpus > 1,
         device=device,
         batch_size=args.batch_size,
         shuffle=False,
@@ -661,7 +625,6 @@ def run(proc_id, n_gpus, n_cpus, args, devices, dataset, queue=None):
                         num_hidden_layers=args.n_layers - 1,
                         dropout=args.dropout,
                         use_self_loop=args.use_self_loop,
-#                            low_mem=args.low_mem,
                         layer_norm=args.layer_norm).to(device)
     
     dense_params = list(model.parameters())
@@ -671,7 +634,39 @@ def run(proc_id, n_gpus, n_cpus, args, devices, dataset, queue=None):
     inv_target = inv_target.to(device)
     labels = labels.to(device)
     
+    # ============ 训练监控初始化 ============
+    print("\n" + "="*70)
+    print("Training Monitoring Information")
+    print("="*70)
+    
+    # 计算并打印模型参数量
+    model_total_params, model_trainable_params = count_parameters(model)
+    embed_total_params, embed_trainable_params = count_parameters(embed_layer)
+    total_params = model_total_params + embed_total_params
+    trainable_params = model_trainable_params + embed_trainable_params
+    
+    print(f"\n[Model Parameters]")
+    print(f"  Model:        {model_total_params:,} total, {model_trainable_params:,} trainable")
+    print(f"  Embed Layer:  {embed_total_params:,} total, {embed_trainable_params:,} trainable")
+    print(f"  Total:        {total_params:,} total, {trainable_params:,} trainable")
+    
+    # 重置GPU内存统计
+    if th.cuda.is_available():
+        th.cuda.reset_peak_memory_stats()
+        th.cuda.empty_cache()
+    
+    # 训练时间记录
+    epoch_times = []
+    training_start_time = time.time()
+    max_gpu_memory = 0
+    current_gpu_memory = 0
+    
+    print(f"\n[Training Started at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}]")
+    print("="*70 + "\n")
+    # =========================================
+    
     for epoch in range(args.n_epochs):
+        epoch_start_time = time.time()
         print(f"\n=== Epoch {epoch} - Phase {training_phase} ===")
         
         # 阶段1：纯分类训练，达到最佳性能后进入阶段2
@@ -702,7 +697,6 @@ def run(proc_id, n_gpus, n_cpus, args, devices, dataset, queue=None):
             input_nodes, seeds, blocks = sample_data
             seeds = seeds.long()
             seeds = inv_target[seeds]
-            t0 = time.time()
 
             feats = embed_layer(blocks[0].srcdata[dgl.NID],
                                 blocks[0].srcdata['ntype'],
@@ -734,16 +728,11 @@ def run(proc_id, n_gpus, n_cpus, args, devices, dataset, queue=None):
                 center_loss = th.tensor(0.0, device=device, requires_grad=True)
             # 阶段2：使用center loss
             else:
-                center_loss = my_loss(hidden_status,C_mal,pseudo_labels,seeds)
-            
-            # # 添加监督对比学习损失
-            # supervised_contrastive_loss = local_loss(hidden_status, labels[seeds], 
-            #                                        top_k_positive=args.top_k_positive, 
-            #                                        top_k_negative=args.top_k_negative)
+                center_loss = my_loss(hidden_status, C_mal, pseudo_labels, seeds)
             
             # 总损失：阶段1只使用分类和对比损失，阶段2加入center loss
             if training_phase == 1:
-                loss = cls_loss+ood_loss_value
+                loss = cls_loss + ood_loss_value
             else:
                 loss = cls_loss + center_loss
             
@@ -758,7 +747,7 @@ def run(proc_id, n_gpus, n_cpus, args, devices, dataset, queue=None):
             optimizer.step()
 
             if i % 100 == 0 and proc_id == 0:
-                f1, precision, roc_auc, recall,fpr,tpr,thresholds = score(logits, labels[seeds].to(device),0.5)
+                f1, precision, roc_auc, recall, _, _, _ = score(logits, labels[seeds].to(device), 0.5)
 
                 print(
                     "Epoch {} | Phase {} | Loss: {:.4f} | f1: {:.4f} | roc_auc: {:.4f} | precision: {:.4f} | recall: {:.4f} | cls_loss: {:.4f} | center_loss: {:.4f}".
@@ -785,18 +774,21 @@ def run(proc_id, n_gpus, n_cpus, args, devices, dataset, queue=None):
                     val_acc = 0.0
                 val_seeds = val_seeds.to(device)
                 val_logits = val_logits.to(device)
-                f1, precision,roc_auc,recall,fpr,tpr,thresholds = score(val_logits, labels[val_seeds],0.5)
+                f1, precision, roc_auc, recall, _, _, _ = score(val_logits, labels[val_seeds], 0.5)
 
                 # 阶段1：检查是否达到最佳分类性能
                 if training_phase == 1 and not center_loss_introduced:
                     if f1 > best_classification_f1:
                         best_classification_f1 = f1
                         best_classification_epoch = epoch
+                        # 保存模型状态（用于后续可能需要的加载）
+                        best_model_state = model.state_dict().copy()
+                        best_embed_state = embed_layer.state_dict().copy()
                         print(f"New best classification F1: {f1:.4f} at epoch {epoch}")
                         
-                        # 保存最佳分类模型
-                        th.save(model,'/data1/hongjiegu/checkpoint/HGSLA/best_classification_model.pt')
-                        th.save(embed_layer,'/data1/hongjiegu/checkpoint/HGSLA/best_classification_embed.pt')
+                        # 更新全局最佳F1
+                        if f1 > best_overall_f1:
+                            best_overall_f1 = f1
                         
                         # 检查是否应该进入阶段2
                     elif f1 <= best_classification_f1:  # 可配置的阈值
@@ -810,13 +802,23 @@ def run(proc_id, n_gpus, n_cpus, args, devices, dataset, queue=None):
                         # 用最佳分类模型计算黑中心和伪标签
                         print("Computing malicious center and pseudo labels with best classification model...")
                         
-                        # 加载最佳分类模型
-                        best_model = th.load('/data1/hongjiegu/checkpoint/HGSLA/best_classification_model.pt')
-                        best_embed = th.load('/data1/hongjiegu/checkpoint/HGSLA/best_classification_embed.pt')
+                        # 如果当前epoch就是最佳F1，直接使用当前模型；否则加载保存的最佳模型状态
+                        if epoch == best_classification_epoch:
+                            best_model = model
+                            best_embed = embed_layer
+                        else:
+                            # 创建临时模型并加载状态
+                            best_model = EntityClassify(dev_id, g.number_of_nodes(), args.n_hidden, num_classes, num_rels,
+                                                       num_bases=args.n_bases, num_hidden_layers=args.n_layers - 1,
+                                                       dropout=args.dropout, use_self_loop=args.use_self_loop,
+                                                       layer_norm=args.layer_norm).to(device)
+                            best_embed = RelGraphEmbedLayer(device, num_of_ntype, node_feats, args.n_hidden,
+                                                            dgl_sparse=args.dgl_sparse).to(device)
+                            best_model.load_state_dict(best_model_state)
+                            best_embed.load_state_dict(best_embed_state)
                         
-                        # 计算黑中心
-                        C_mal,C_benign = cal_malicious_logits_center_with_model(best_model, best_embed, node_feats, g, labels, inv_target)
-                        th.save(C_mal,'/data1/hongjiegu/checkpoint/HGSLA/C_mal_best_classification.pt')
+                        # 计算黑中心（不需要保存，可以重新计算）
+                        C_mal, _ = cal_malicious_logits_center_with_model(best_model, best_embed, node_feats, g, labels, inv_target)
                         
                         # 生成伪标签
                         pseudo_labels = generate_pseudo_labels(
@@ -832,8 +834,7 @@ def run(proc_id, n_gpus, n_cpus, args, devices, dataset, queue=None):
                         print(f"Performance improved from {best_performance:.4f} to {current_performance:.4f}, updating pseudo labels and center")
                         
                         # 更新黑中心
-     
-                        C_mal,C_benign = cal_malicious_logits_center_with_model(model, embed_layer, node_feats, g, labels, inv_target)
+                        C_mal, _ = cal_malicious_logits_center_with_model(model, embed_layer, node_feats, g, labels, inv_target)
                         
                         # 更新伪标签
                         pseudo_labels = generate_pseudo_labels(
@@ -842,19 +843,90 @@ def run(proc_id, n_gpus, n_cpus, args, devices, dataset, queue=None):
                         )
                         
                         best_performance = current_performance
+                        
+                        # 更新全局最佳模型
+                        if f1 > best_overall_f1:
+                            best_overall_f1 = f1
+                            best_model_state = model.state_dict().copy()
+                            best_embed_state = embed_layer.state_dict().copy()
+                        
                         print(f"Updated {th.sum(pseudo_labels.sum(dim=1) > 0).item()} pseudo labels")
                     else:
-                        early_stop = stopper.step(f1,model,embed_layer)
+                        early_stop = stopper.step(f1, model, embed_layer)
                         if early_stop:
                             break
                 print("ACC: {:.4f}|Validation loss: {:.4f}| Validation f1: {:.4f}| Validation roc_auc: {:.4f} | Validation precision: {:.4f}|Validation recall: {:.4f}".format(val_acc,val_loss, f1,  roc_auc, precision,recall))
+        
+        # ============ Epoch结束统计 ============
+        epoch_end_time = time.time()
+        epoch_time = epoch_end_time - epoch_start_time
+        epoch_times.append(epoch_time)
+        
+        # 更新最大GPU内存使用
+        if th.cuda.is_available():
+            current_gpu_memory = get_gpu_memory()
+            max_gpu_memory = max(max_gpu_memory, current_gpu_memory)
+        
+        print(f"\n[Epoch {epoch} Time: {format_time(epoch_time)} ({epoch_time:.2f}s) | GPU Memory: {current_gpu_memory:.2f} MB]")
+        print("-"*70)
+    
+    # ============ 训练完成统计 ============
+    training_end_time = time.time()
+    total_training_time = training_end_time - training_start_time
+    
+    print("\n" + "="*70)
+    print("Training Completed - Summary Statistics")
+    print("="*70)
+    
+    print(f"\n[Time Statistics]")
+    print(f"  Total Training Time:    {format_time(total_training_time)} ({total_training_time:.2f}s)")
+    print(f"  Average Epoch Time:     {format_time(np.mean(epoch_times))} ({np.mean(epoch_times):.2f}s)")
+    print(f"  Fastest Epoch Time:     {format_time(np.min(epoch_times))} ({np.min(epoch_times):.2f}s)")
+    print(f"  Slowest Epoch Time:     {format_time(np.max(epoch_times))} ({np.max(epoch_times):.2f}s)")
+    print(f"  Total Epochs:           {len(epoch_times)}")
+    
+    print(f"\n[Resource Usage]")
+    print(f"  Max GPU Memory:         {max_gpu_memory:.2f} MB ({max_gpu_memory/1024:.2f} GB)")
+    if th.cuda.is_available():
+        print(f"  GPU Device:             {th.cuda.get_device_name(0)}")
+        print(f"  Current GPU Memory:     {th.cuda.memory_allocated() / 1024 / 1024:.2f} MB")
+    
+    print(f"\n[Model Information]")
+    print(f"  Total Parameters:       {total_params:,}")
+    print(f"  Trainable Parameters:   {trainable_params:,}")
+    
+    # 保存最终最佳模型
+    checkpoint_dir = os.path.join(SCRIPT_DIR, 'checkpoint')
+    benchmark = args.benchmark
+    model_filename = f'{checkpoint_dir}/{benchmark}_pretrained_gravel_model.pt'
+    embed_filename = f'{checkpoint_dir}/{benchmark}_pretrained_gravel_embed.pt'
+    
+    if best_model_state is not None and best_embed_state is not None:
+        print(f"\n[Saving Final Model]")
+        print(f"  Best F1 Score:         {best_overall_f1:.4f}")
+        # 加载最佳状态到当前模型并保存
+        model.load_state_dict(best_model_state)
+        embed_layer.load_state_dict(best_embed_state)
+        th.save(model, model_filename)
+        th.save(embed_layer, embed_filename)
+        print(f"  Model saved to:        {model_filename}")
+        print(f"  Embed saved to:        {embed_filename}")
+    else:
+        # 如果没有保存的状态，保存当前模型
+        th.save(model, model_filename)
+        th.save(embed_layer, embed_filename)
+        print(f"\n[Model saved to {checkpoint_dir}/]")
+    
+    print(f"\n[Training Completed at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}]")
+    print("="*70 + "\n")
+    # =========================================
 
 
 
 def main(args, devices):
     # # load graph data
     g, node_feats, num_of_ntype, num_classes, num_rels, target_idx, inv_target, train_idx, val_idx, test_idx, labels,hg = get_g(
-        'pdns')
+        args.benchmark)
     # Create csr/coo/csc formats before launching training processes with multi-gpu.
     # This avoids creating certain formats in each sub-process, which saves momory and CPU.
     # 在使用多 GPU 启动训练过程之前创建 csr/coo/csc 格式，创建系数矩阵。
@@ -868,8 +940,6 @@ def main(args, devices):
 
 def config():
     parser = argparse.ArgumentParser(description='HGAFA')
-    #     parser.add_argument('-s', '--seed', type=int, default=2,
-    #                         help='Random seed')
     parser.add_argument("--dropout", type=float, default=0,
                         help="dropout probability")
     parser.add_argument("--n-hidden", type=int, default=64,
@@ -886,63 +956,34 @@ def config():
                         help="number of propagation rounds")
     parser.add_argument("-e", "--n-epochs", type=int, default=100,
                         help="number of training epochs")
-    # parser.add_argument("-d", "--dataset", type=str, required=True,
-    #                     help="dataset to use")
     parser.add_argument("--l2norm", type=float, default=1e-5,
                         help="l2 norm coef")
     parser.add_argument("--fanout", type=str, default="20,20,20",
                         help="Fan-out of neighbor sampling.")
+    parser.add_argument("--benchmark", type=str, default="pdns",
+                        choices=["pdns", "minta", "iochg"],
+                        help="Benchmark dataset to use: pdns, minta, or iochg")
     parser.add_argument("--use-self-loop", default=True, action='store_true',
                         help="include self feature as a special relation")
-    fp = parser.add_mutually_exclusive_group(required=False)
-    fp.add_argument('--validation', dest='validation', action='store_true')
-    fp.add_argument('--testing', dest='validation', action='store_false')
     parser.add_argument("--batch-size", type=int, default=4096,
                         help="Mini-batch size. ")
     parser.add_argument("--eval-batch-size", type=int, default=4096,
                         help="Mini-batch size. ")
     parser.add_argument("--num-workers", type=int, default=4,
                         help="Number of workers for dataloader.")
-    parser.add_argument("--low-mem", default=False, action='store_true',
-                        help="Whether use low mem RelGraphCov")
     parser.add_argument("--dgl-sparse", default=False, action='store_true',
                         help='Use sparse embedding for node embeddings.')
-    parser.add_argument("--embedding-gpu", default=True, action='store_true',
-                        help='Store the node embeddings on the GPU.')
-    parser.add_argument('--node-feats', default=True, action='store_true',
-                        help='Whether use node features')
     parser.add_argument('--layer-norm', default=False, action='store_true',
                         help='Use layer norm')
-    
-    # EMA configuration parameters
-    parser.add_argument("--ema-decay", type=float, default=0.99,
-                        help="EMA decay rate for malicious center tracking")
-    parser.add_argument("--ema-min-decay", type=float, default=0.9,
-                        help="Minimum EMA decay rate")
-    parser.add_argument("--use-ema", default=True, action='store_true',
-                        help="Use EMA for end-to-end malicious center tracking")
     
     # Pseudo label configuration parameters
     parser.add_argument("--pseudo-update-freq", type=int, default=5,
                         help="Frequency of pseudo label updates (every N epochs)")
     parser.add_argument("--confidence-threshold", type=float, default=0,
                         help="Confidence threshold for pseudo label generation")
-    parser.add_argument("--performance-threshold", type=float, default=0,
-                        help="Performance improvement threshold for pseudo label updates")
-    
-    # Supervised contrastive learning parameters
-    parser.add_argument("--contrastive-weight", type=float, default=1,
-                        help="Weight for supervised contrastive learning loss")
-    
-    # Hard mining parameters for contrastive learning
-    parser.add_argument("--top-k-positive", type=int, default=50,
-                        help="Number of hardest positive pairs (largest distance) to select for contrastive learning")
-    parser.add_argument("--top-k-negative", type=int, default=50,
-                        help="Number of hardest negative pairs (smallest distance) to select for contrastive learning")
     
 
     
-    parser.set_defaults(validation=True)
     args = parser.parse_args()
     return args
 
