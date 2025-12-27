@@ -116,22 +116,29 @@ ehthumbs.db
 Thumbs.db
 
 # Project specific
-# checkpoint/  # Allow checkpoint files to be tracked (models are relatively small)
+# checkpoint/ directory structure is tracked, but .pt files are ignored (uploaded to cloud)
 feats/
 plot/
-# dataset/  # Dataset data files are too large (8.6GB), should not be committed
-dataset/*
+# dataset/ directory structure is tracked, but data files are ignored (uploaded to cloud)
+# Ignore all dataset subdirectories with data
+dataset/*/
 !dataset/.gitkeep
 !dataset/convert_*.py
+# Ignore all model files
 *.pkl
 *.pth
 *.pt
-!checkpoint/**/*.pt
 *.ckpt
 *.h5
 *.hdf5
 *.npy
 *.npz
+# Ignore data files in dataset subdirectories
+dataset/**/*.csv
+dataset/**/*.pt
+dataset/**/nodes/
+dataset/**/edges/
+dataset/**/feats/
 logs/
 runs/
 tensorboard_logs/
