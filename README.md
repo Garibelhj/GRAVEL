@@ -74,6 +74,28 @@ The project supports four benchmarks:
 - **iochg**: IOCHG dataset
 - **iochg_small**: IOCHG small dataset
 
+### Download Datasets
+
+The datasets are available on Google Drive. Download the zip file and extract it to the project directory:
+
+**Download Link**: [GRAVEL Datasets](https://drive.google.com/file/d/1zC2bKSi0-_urDTSn_7aOdY-d0NLbcpDA/view?usp=drive_link)
+
+**Installation Steps:**
+```bash
+# Download the dataset zip file from Google Drive
+# Extract the zip file to the GRAVEL project directory
+unzip dataset.zip -d /path/to/GRAVEL/
+
+# The extracted files should be in the following structure:
+# GRAVEL/dataset/
+# ├── pdns-dgl/
+# ├── minta-dgl/
+# ├── iochg-dgl/
+# └── iochg_small-dgl/
+```
+
+### Dataset Structure
+
 Each dataset should be organized in the following structure:
 ```
 dataset/{benchmark}-dgl/
@@ -82,6 +104,8 @@ dataset/{benchmark}-dgl/
 ├── feats/              # Feature files (*_feats_rand.pt)
 └── ood_*.csv          # Out-of-distribution test data
 ```
+
+**Note**: The dataset files are large and are not included in the git repository. Please download them from Google Drive and extract to the `dataset/` directory.
 
 ## Usage
 
